@@ -8,7 +8,7 @@ import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.tilelink._
 import org.chipsalliance.cde.config._
 
-class TestClientModule()(implicit p: Parameters) extends LazyModule {
+class TestClientModule(latency: Int = 0)(implicit p: Parameters) extends LazyModule {
 
   // 1. Create node
   //    ClientNode is a kind of SourceNode, input signal is not required
@@ -16,10 +16,10 @@ class TestClientModule()(implicit p: Parameters) extends LazyModule {
       TLMasterPortParameters.v1(
         clients =
           Seq(TLMasterParameters.v1(
-              name = "test client module",
+              name = "test client module" + " latency:" + latency,
               sourceId = IdRange(0, 10),
           )),
-        minLatency = 0,
+        minLatency = latency,
         echoFields = Nil,
         requestFields = Nil,
         responseKeys = Nil
@@ -30,6 +30,17 @@ class TestClientModule()(implicit p: Parameters) extends LazyModule {
   // 2. Create real hardware
   lazy val module = new Impl
   class Impl extends LazyModuleImp(this) {
+    node.out.foreach { out =>
+      println("(1) [managers]", out._2.manager.managers)
+
+      out._2.manager.managers.zipWithIndex.foreach {
+        case (manager, i) => println("(2) [others]", i, manager.name, manager.nodePath)
+      }
+    }
+    println()
+
+    // SourceNode has no input (bundle, edge)
+    assert(node.in == Nil)
 
     // node.out ==> Seq[(BO, EO)] 
     //              BO: Bundle Output ==> class TLBundleA/B/C/D/E ==> real hardware bundle
@@ -101,6 +112,17 @@ class TestManagerModule()(implicit p: Parameters) extends LazyModule {
   // 2. Create real hardware
   lazy val module = new Impl
   class Impl extends LazyModuleImp(this) {
+    node.in.foreach{ in =>
+      println("(1) [clients]", in._2.client.clients)
+
+      in._2.client.clients.zipWithIndex.foreach{
+        case (client, i) => println("(2) [others]", i, client.name, client.nodePath)
+      }
+    }
+    println()
+
+    // SinkNode has no output (bundle, edge)
+    assert(node.out == Nil)
 
     // node.in ==> Seq[(BI, EI)] 
     //              BI: Bundle Input ==> class TLBundleA/B/C/D/E ==> real hardware bundle
@@ -136,6 +158,9 @@ class TestTop()(implicit p: Parameters) extends LazyModule {
   // 1. Instantiate nodes
   val client = LazyModule(new TestClientModule())
   val manager = LazyModule(new TestManagerModule())
+
+//  client.node
+//  println("")
 
   // 2. Connect nodes
   manager.node := client.node
@@ -174,6 +199,36 @@ class TestTop()(implicit p: Parameters) extends LazyModule {
   }
 }
 
+class TestTop_1()(implicit p: Parameters) extends LazyModule {
+
+  // 1. Instantiate nodes
+  val client = LazyModule(new TestClientModule(2))
+  val manager = LazyModule(new TestManagerModule())
+
+  val client_1 = LazyModule(new TestClientModule(1))
+  val xbar = TLXbar()
+
+  xbar := client.node
+  xbar := client_1.node
+
+  // 2. Connect nodes
+  //  manager.node := client.node
+  manager.node := xbar
+
+  // 3. Create real top hardware
+  lazy val module = new Impl
+  class Impl extends LazyModuleImp(this) {
+
+    val io = IO(new Bundle{
+      val val3 = Output(Bool())
+    })
+
+    io.val3 := false.B
+
+    dontTouch(io.val3)
+  }
+}
+
 object main extends App {
 
   val config = new Config(Parameters.empty)
@@ -183,6 +238,14 @@ object main extends App {
 
   (new ChiselStage).execute(Array("--target", "verilog") ++ args, Seq(
     ChiselGeneratorAnnotation(() => top.module),
+    FirtoolOption("--strip-debug-info"),
+    FirtoolOption("--disable-annotation-unknown")
+  ))
+
+  val top_1 = DisableMonitors(p => LazyModule(new TestTop_1()(p)))(config)
+  (new ChiselStage).execute(Array("--target", "verilog") ++ args, Seq(
+    ChiselGeneratorAnnotation(() => top_1.module),
+    FirtoolOption("--strip-debug-info"),
     FirtoolOption("--disable-annotation-unknown")
   ))
 

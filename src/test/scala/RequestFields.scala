@@ -45,7 +45,7 @@ class TestClientModule()(implicit p: Parameters) extends LazyModule {
         // Keys and Fields:
         // 1. Keys are used for <matching> a specific user field data
         // 2. Fields are used for <defining> ...
-        // 3. RequestFields ==> channel A
+        // 3. RequestFields ==> channel A/C/E
         // 4. RespondFields ==> channel D
 
         // 1. requestFields are constructed via Seq(), if you have more than one field to be used, operator "+:" may be useful
